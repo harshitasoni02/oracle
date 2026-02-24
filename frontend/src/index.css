@@ -1,0 +1,65 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0D1117;
+  --surface: #161B22;
+  --border: #30363D;
+  --muted: #8B949E;
+  --gold: #F0A500;
+  --silver: #A0ADB7;
+  --bull: #3FB950;
+  --bear: #F85149;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg);
+  color: #F0F6FC;
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Thin scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--surface);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* Numeric values */
+.mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Signal colors */
+.signal-strong-buy   { color: #3FB950; }
+.signal-buy          { color: #85E089; }
+.signal-neutral      { color: #8B949E; }
+.signal-sell         { color: #FF7B72; }
+.signal-strong-sell  { color: #F85149; }
+
+/* Pulse animation */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.live-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}

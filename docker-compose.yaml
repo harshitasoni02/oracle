@@ -1,0 +1,53 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: oracle-redis
+    restart: unless-stopped
+    networks:
+      - oracle-network
+
+  backend:
+    build: ./backend
+    container_name: oracle-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DEBUG=1
+      - TWELVEDATA_API_KEY=${TWELVEDATA_API_KEY:-}
+      - HF_HOME=/app/hf_cache
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-oracle-dev-insecure-key}
+      - SHIZUHA_ID_API_URL=${SHIZUHA_ID_API_URL:-http://shizuha-id:8001/api}
+    volumes:
+      - ./backend:/app
+      - oracle-db:/app/db
+      - oracle-hf-cache:/app/hf_cache
+    depends_on:
+      - redis
+    networks:
+      - oracle-network
+
+  frontend:
+    build: ./frontend
+    container_name: oracle-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    environment:
+      - VITE_API_URL=http://backend:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - oracle-network
+
+volumes:
+  oracle-db:
+  oracle-hf-cache:
+
+networks:
+  oracle-network:
+    driver: bridge
