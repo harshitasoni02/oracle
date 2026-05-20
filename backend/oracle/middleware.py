@@ -10,6 +10,8 @@ class ServiceAccessMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
+        if getattr(settings, 'ORACLE_DETACHED', False):
+            return self.get_response(request)
         if not request.path.startswith('/api/'):
             return self.get_response(request)
         if '/internal/' in request.path:

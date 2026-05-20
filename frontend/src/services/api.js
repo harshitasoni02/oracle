@@ -2,6 +2,9 @@ import axios from 'axios'
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api'
 
+// Detached mode: standalone deployment with no Shizuha ID login.
+const DETACHED = ['1', 'true'].includes(import.meta.env.VITE_DETACHED)
+
 const client = axios.create({
   baseURL: API_BASE,
   timeout: 30_000,
@@ -22,7 +25,7 @@ client.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (error.response?.status === 401 && !originalRequest._retry && !DETACHED) {
       originalRequest._retry = true
 
       const refreshToken = localStorage.getItem('shizuha_refresh_token')

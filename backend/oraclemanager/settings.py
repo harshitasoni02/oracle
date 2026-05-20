@@ -9,6 +9,11 @@ SECRET_KEY = JWT_SECRET_KEY
 DEBUG = os.environ.get('DEBUG', '1') == '1'
 ALLOWED_HOSTS = ['*']
 
+# Detached mode: run Oracle standalone with no Shizuha ID federated auth.
+# When on, the API is served openly (AllowAny) and the service-access gate
+# is skipped — used by the self-contained compose/shizuha-oracle stack.
+ORACLE_DETACHED = os.environ.get('ORACLE_DETACHED', '0') == '1'
+
 INSTALLED_APPS = [
     'daphne',
     'django.contrib.admin',
@@ -86,10 +91,14 @@ REST_FRAMEWORK = {
         'oracle.authentication.ShizuhaJWTAuthentication',
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',
-        'oracle.permissions.ServiceAccessPermission',
-    ],
+    'DEFAULT_PERMISSION_CLASSES': (
+        ['rest_framework.permissions.AllowAny']
+        if ORACLE_DETACHED
+        else [
+            'rest_framework.permissions.IsAuthenticated',
+            'oracle.permissions.ServiceAccessPermission',
+        ]
+    ),
 }
 
 # Simple JWT

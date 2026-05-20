@@ -15,10 +15,10 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - DEBUG=1
+      - ORACLE_DETACHED=1
       - TWELVEDATA_API_KEY=${TWELVEDATA_API_KEY:-}
       - HF_HOME=/app/hf_cache
       - JWT_SECRET_KEY=${JWT_SECRET_KEY:-oracle-dev-insecure-key}
-      - SHIZUHA_ID_API_URL=${SHIZUHA_ID_API_URL:-http://shizuha-id:8001/api}
     volumes:
       - ./backend:/app
       - oracle-db:/app/db
@@ -36,6 +36,9 @@ services:
       - "5173:80"
     environment:
       - VITE_API_URL=http://backend:8000
+      - VITE_API_BASE=/api
+      - VITE_BASE_PATH=/
+      - VITE_DETACHED=1
     volumes:
       - ./frontend:/app
       - /app/node_modules

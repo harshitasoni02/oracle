@@ -2,8 +2,15 @@ import React from 'react'
 import { useAuth } from './contexts/AuthContext'
 import OraclePage from './pages/OraclePage'
 
+// Detached mode: standalone deployment with no Shizuha ID login.
+const DETACHED = ['1', 'true'].includes(import.meta.env.VITE_DETACHED)
+
 function ProtectedRoute({ children }) {
   const { isAuthenticated, isLoading } = useAuth()
+
+  if (DETACHED) {
+    return children
+  }
 
   if (isLoading) {
     return (
