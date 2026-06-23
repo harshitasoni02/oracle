@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { BarChart2, AlertTriangle } from 'lucide-react'
+import { BarChart2, AlertTriangle, FlaskConical } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 
 import { api } from '../services/api'
 import useLivePrices from '../hooks/useLivePrices'
@@ -20,6 +21,7 @@ export default function OraclePage() {
   const [timeframe, setTimeframe] = useState('1m')
   const [activeSubChart, setActiveSubChart] = useState('rsi')
 
+  const navigate = useNavigate()
   const qc = useQueryClient()
   const { data: liveData, isConnected: isLive, lastUpdate, sentimentData } = useLivePrices(metal)
 
@@ -91,6 +93,14 @@ export default function OraclePage() {
             <span className="text-xs text-muted bg-border px-2 py-0.5 rounded">Gold & Silver Spot Prices</span>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted">
+            <button
+              onClick={() => navigate('/backtesting')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-muted hover:text-white hover:bg-border/60 transition-all"
+            >
+              <FlaskConical size={13} />
+              <span className="hidden sm:block">Backtesting</span>
+            </button>
+            <span className="hidden sm:block text-border">|</span>
             <span className="hidden sm:block">India focus · INR prices</span>
             <span className={`w-1.5 h-1.5 rounded-full ${isLive ? 'bg-bull live-dot' : 'bg-muted'}`} />
             <span>{isLive ? 'Live' : 'Polling'}</span>

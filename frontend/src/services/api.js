@@ -62,4 +62,23 @@ export const api = {
   getPredictions: (metal) => client.get(`/predictions/${metal}/`).then(r => r.data),
   triggerRefresh: () => client.post('/refresh/').then(r => r.data),
   getSentiment: (metal) => client.get(`/sentiment/${metal}/`).then(r => r.data),
+
+  // ── Backtesting ────────────────────────────────────────────────────────────
+  // GET /api/backtesting/?metal=gold&timeframe=1d&horizon=1w
+  getBacktestResults: (params) =>
+    client.get('/backtesting/', { params }).then(r => r.data),
+
+  // GET /api/backtesting/summary/?metal=gold&horizon=1w
+  getBacktestSummary: (metal, horizon) =>
+    client.get('/backtesting/summary/', { params: { metal, horizon } }).then(r => r.data),
+
+  getVerificationStats: (metal, timeframe = '1d') =>
+  client.get('/backtesting/verification/', {
+    params: { metal, timeframe }
+  }).then(r => r.data),
+
+  getVerificationHistory: (metal, timeframe = '1d') =>
+  client.get('/backtesting/history/', {
+    params: { metal, timeframe }
+  }).then(r => r.data),
 }

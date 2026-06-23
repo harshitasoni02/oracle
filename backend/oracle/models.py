@@ -234,3 +234,190 @@ class Prediction(models.Model):
 
     def __str__(self):
         return f"{self.metal} {self.timeframe}: {self.direction} @ ${self.predicted_usd:.2f}"
+    
+
+    # backend/oracle/models.py  (ADD these two classes to your existing models.py)
+# ─────────────────────────────────────────────────────────────────────────────
+# Append both classes at the bottom of your existing oracle/models.py file.
+# Do NOT replace the whole file – just add what is shown here.
+# ─────────────────────────────────────────────────────────────────────────────
+
+from django.db import models
+
+
+class BacktestResult(models.Model):
+    """
+    Stores the aggregate performance of a single backtesting run.
+
+    One row = one (metal, timeframe, strategy, horizon) combination.
+    The engine overwrites the row on every run so the table stays small.
+    """
+
+    METAL_CHOICES = [("gold", "Gold"), ("silver", "Silver")]
+
+    TIMEFRAME_CHOICES = [
+        ("1d", "1 Day"),
+        ("1w", "1 Week"),
+        ("1mo", "1 Month"),
+    ]
+
+    STRATEGY_CHOICES = [
+        ("rsi", "RSI"),
+        ("macd", "MACD"),
+        ("composite", "Composite Signal"),
+        ("sentiment", "Sentiment Signal"),
+    ]
+
+    HORIZON_CHOICES = [
+        ("1d", "Next Day"),
+        ("1w", "Next Week"),
+        ("1mo", "Next Month"),
+    ]
+
+    # ── Identity ──────────────────────────────────────────────────────────────
+    metal = models.CharField(max_length=10, choices=METAL_CHOICES)
+    timeframe = models.CharField(max_length=5, choices=TIMEFRAME_CHOICES)
+    strategy = models.CharField(max_length=20, choices=STRATEGY_CHOICES)
+    horizon = models.CharField(max_length=5, choices=HORIZON_CHOICES)
+
+    # ── Core metrics ──────────────────────────────────────────────────────────
+    accuracy = models.FloatField(
+        help_text="Percentage of predictions that matched the actual direction (0–100)"
+    )
+    win_rate = models.FloatField(
+        help_text="Percentage of trades that were profitable (0–100)"
+    )
+    total_trades = models.IntegerField(
+        help_text="Number of trade signals evaluated"
+    )
+
+    # ── P&L metrics ───────────────────────────────────────────────────────────
+    avg_gain = models.FloatField(
+        help_text="Average percentage gain on winning trades"
+    )
+    avg_loss = models.FloatField(
+        help_text="Average percentage loss on losing trades (stored as positive number)"
+    )
+    profit_factor = models.FloatField(
+        help_text="Gross profit / Gross loss  (>1 is profitable)"
+    )
+
+    # ── Extra stats ───────────────────────────────────────────────────────────
+    max_drawdown = models.FloatField(
+        default=0.0,
+        help_text="Maximum peak-to-trough decline as a percentage"
+    )
+    sharpe_ratio = models.FloatField(
+        default=0.0,
+        help_text="Risk-adjusted return (annualised, assuming 0 risk-free rate)"
+    )
+    total_return = models.FloatField(
+        default=0.0,
+        help_text="Total percentage return over the backtested period"
+    )
+
+    # ── Meta ──────────────────────────────────────────────────────────────────
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("metal", "timeframe", "strategy", "horizon")
+        ordering = ["-created_at"]
+        verbose_name = "Backtest Result"
+        verbose_name_plural = "Backtest Results"
+
+    def __str__(self):
+        return (
+            f"{self.metal.upper()} | {self.strategy} | "
+            f"tf={self.timeframe} | horizon={self.horizon} | "
+            f"acc={self.accuracy:.1f}%"
+        )
+
+
+class PredictionVerification(models.Model):
+    """
+    One row per individual prediction that has been verified against reality.
+
+    The engine populates this after actual prices become available for a
+    previously stored Prediction record.
+    """
+
+    METAL_CHOICES = [("gold", "Gold"), ("silver", "Silver")]
+
+    TIMEFRAME_CHOICES = [
+        ("1m", "1 Minute"),
+        ("5m", "5 Minutes"),
+        ("15m", "15 Minutes"),
+        ("1h", "1 Hour"),
+        ("1d", "1 Day"),
+        ("1w", "1 Week"),
+        ("1mo", "1 Month"),
+    ]
+
+    # ── Identity ──────────────────────────────────────────────────────────────
+    metal = models.CharField(max_length=10, choices=METAL_CHOICES)
+    timeframe = models.CharField(max_length=5, choices=TIMEFRAME_CHOICES)
+    prediction_date = models.DateTimeField(
+        help_text="When the prediction was originally made"
+    )
+    target_date = models.DateTimeField(
+        help_text="The date/time the prediction was for"
+    )
+
+    # ── Prices ────────────────────────────────────────────────────────────────
+    predicted_price = models.FloatField()
+    actual_price = models.FloatField()
+    predicted_direction = models.CharField(
+        max_length=5,
+        choices=[("up", "Up"), ("down", "Down")],
+        default="up",
+    )
+    actual_direction = models.CharField(
+        max_length=5,
+        choices=[("up", "Up"), ("down", "Down")],
+        default="up",
+    )
+
+    # ── Error metrics (computed on save) ──────────────────────────────────────
+    absolute_error = models.FloatField(
+        help_text="|predicted - actual|"
+    )
+    percentage_error = models.FloatField(
+        help_text="|predicted - actual| / actual  * 100"
+    )
+    direction_correct = models.BooleanField(
+        default=False,
+        help_text="True when the predicted direction matched the actual direction"
+    )
+
+    # ── Meta ──────────────────────────────────────────────────────────────────
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-prediction_date"]
+        indexes = [
+            models.Index(fields=["metal", "timeframe"]),
+            models.Index(fields=["prediction_date"]),
+        ]
+        verbose_name = "Prediction Verification"
+        verbose_name_plural = "Prediction Verifications"
+
+    def save(self, *args, **kwargs):
+        # Auto-compute derived fields before every save
+        self.absolute_error = abs(self.predicted_price - self.actual_price)
+        if self.actual_price:
+            self.percentage_error = (
+                self.absolute_error / abs(self.actual_price)
+            ) * 100
+        self.direction_correct = self.predicted_direction == self.actual_direction
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        status = "✓" if self.direction_correct else "✗"
+        return (
+            f"{status} {self.metal.upper()} | {self.timeframe} | "
+            f"{self.prediction_date:%Y-%m-%d} → {self.target_date:%Y-%m-%d} | "
+            f"err={self.percentage_error:.2f}%"
+        )
+

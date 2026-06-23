@@ -41,9 +41,9 @@ SILVER_SEASONAL_BIAS = {1: 0.0, 2: 0.0, 3: 0.005, 4: 0.01}
 
 
 def _direction(change_pct: float) -> str:
-    if change_pct > 1.5:
+    if change_pct > 0.25:
         return 'up'
-    if change_pct < -1.5:
+    if change_pct < 0.25:
         return 'down'
     return 'sideways'
 

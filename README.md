@@ -80,6 +80,7 @@ Then open:
 - **Frontend**: <http://localhost:5173>
 - **Backend API**: <http://localhost:8000/api/>
 
+
 The first build takes a few minutes (PyTorch CPU wheel + the FinBERT model download).
 After that, give Celery ~30-60 seconds to fetch initial data, or trigger an immediate
 refresh:
