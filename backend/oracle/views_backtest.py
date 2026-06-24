@@ -156,15 +156,20 @@ class VerificationStatsView(APIView):
     """
     Returns aggregate MAE, RMSE, MAPE, Directional Accuracy.
     Supports: ?metal=gold&timeframe=1d
+    When timeframe is omitted, aggregates across all timeframes.
     """
 
     def get(self, request):
         from oracle.services.prediction_verification import compute_verification_stats
 
         metal = request.query_params.get("metal", "gold")
-        timeframe = request.query_params.get("timeframe", "1d")
+        timeframe = request.query_params.get("timeframe")
 
-        stats = compute_verification_stats(metal=metal, timeframe=timeframe)
+        if timeframe:
+            stats = compute_verification_stats(metal=metal, timeframe=timeframe)
+        else:
+            # Aggregate across all timeframes for the given metal
+            stats = compute_verification_stats(metal=metal, timeframe=None)
         serializer = VerificationStatsSerializer(stats.__dict__)
         return Response(serializer.data)
 

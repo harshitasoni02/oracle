@@ -1,10 +1,13 @@
 import logging
 from celery import shared_task
 
+# Register backtest tasks so Celery autodiscover picks them up
+from oracle import tasks_backtest  # noqa: F401
+
 logger = logging.getLogger('oracle')
 
 METALS = ['gold', 'silver']
-ALL_TIMEFRAMES = ['1m', '5m', '15m', '1h', '1d', '1wk']
+ALL_TIMEFRAMES = ['1m', '5m', '15m', '1h', '1d', '1w']
 
 
 @shared_task(name='oracle.tasks.refresh_prices')
@@ -42,7 +45,7 @@ def refresh_intraday_bars():
 def refresh_historical_bars():
     from oracle.services.data_fetcher import fetch_and_save_bars
     for metal in METALS:
-        for tf in ['1d', '1wk']:
+        for tf in ['1d', '1w']:
             fetch_and_save_bars(metal, tf)
 
 

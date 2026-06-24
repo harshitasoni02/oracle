@@ -43,6 +43,7 @@ class PredictionVerificationSerializer(serializers.ModelSerializer):
             "timeframe",
             "prediction_date",
             "target_date",
+            "previous_price",
             "predicted_price",
             "actual_price",
             "predicted_direction",

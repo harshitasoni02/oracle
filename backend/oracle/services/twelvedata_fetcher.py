@@ -26,7 +26,7 @@ TD_INTERVAL_MAP = {
     '15m': '15min',
     '1h': '1h',
     '1d': '1day',
-    '1wk': '1week',
+    '1w': '1week',
 }
 
 # How many bars to fetch per call (covers enough history for each timeframe)
@@ -36,7 +36,7 @@ TD_OUTPUTSIZE = {
     '15m': 400,    # ~4 days
     '1h': 300,     # ~12 days
     '1d': 500,     # ~2 years
-    '1wk': 260,    # ~5 years
+    '1w': 260,    # ~5 years
 }
 
 

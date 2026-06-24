@@ -20,7 +20,7 @@ CHART_CONFIG = {
     '15m': ('15m',  5),
     '1h':  ('1h',   30),
     '1d':  ('1d',   365),
-    '1w':  ('1wk',  1825),
+    '1w':  ('1w',  1825),
 }
 
 INDICATOR_TIMEFRAME_MAP = {
@@ -29,7 +29,7 @@ INDICATOR_TIMEFRAME_MAP = {
     '15m': '15m',
     '1h': '1h',
     '1d': '1d',
-    '1w': '1wk',
+    '1w': '1w',
 }
 
 

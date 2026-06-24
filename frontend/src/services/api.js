@@ -1,9 +1,8 @@
 import axios from 'axios'
 
-const API_BASE = import.meta.env.VITE_API_BASE || '/api'
-
-// Detached mode: standalone deployment with no Shizuha ID login.
-const DETACHED = ['1', 'true'].includes(import.meta.env.VITE_DETACHED)
+// Hardcoded values (Vite import analysis crashes on __VITE_* identifiers)
+const API_BASE = '/api'
+const DETACHED = true
 
 const client = axios.create({
   baseURL: API_BASE,
@@ -72,13 +71,15 @@ export const api = {
   getBacktestSummary: (metal, horizon) =>
     client.get('/backtesting/summary/', { params: { metal, horizon } }).then(r => r.data),
 
-  getVerificationStats: (metal, timeframe = '1d') =>
-  client.get('/backtesting/verification/', {
-    params: { metal, timeframe }
-  }).then(r => r.data),
+  getVerificationStats: (metal, timeframe = null) => {
+    const params = { metal };
+    if (timeframe) params.timeframe = timeframe;
+    return client.get('/backtesting/verification/', { params }).then(r => r.data);
+  },
 
-  getVerificationHistory: (metal, timeframe = '1d') =>
-  client.get('/backtesting/history/', {
-    params: { metal, timeframe }
-  }).then(r => r.data),
+  getVerificationHistory: (metal, timeframe = null) => {
+    const params = { metal };
+    if (timeframe) params.timeframe = timeframe;
+    return client.get('/backtesting/history/', { params }).then(r => r.data);
+  },
 }

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { BarChart2, AlertTriangle, FlaskConical } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
-import { api } from '../services/api'
+import { api } from '../services/api.js'
 import useLivePrices from '../hooks/useLivePrices'
 import MetalTimeframeBar from '../components/MetalTimeframeBar'
 import CurrentPriceCard from '../components/CurrentPriceCard'

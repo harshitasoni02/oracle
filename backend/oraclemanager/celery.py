@@ -44,4 +44,14 @@ app.conf.beat_schedule = {
         'task': 'oracle.tasks.refresh_sentiment',
         'schedule': 3 * 60 * 60,  # 10800 seconds
     },
+    # Run backtest daily at 01:00 UTC
+    'run-backtest-daily': {
+        'task': 'oracle.tasks_backtest.run_backtest_task',
+        'schedule': crontab(hour=1, minute=0),
+    },
+    # Verify predictions daily at 02:00 UTC
+    'verify-predictions-daily': {
+        'task': 'oracle.tasks_backtest.verify_predictions_task',
+        'schedule': crontab(hour=2, minute=0),
+    },
 }

@@ -44,7 +44,7 @@ class PriceBar(models.Model):
         ('15m', '15 Minutes'),
         ('1h', '1 Hour'),
         ('1d', '1 Day'),
-        ('1wk', '1 Week'),
+        ('1w', '1 Week'),
     ]
 
     metal = models.CharField(max_length=10, choices=METAL_CHOICES, db_index=True)
@@ -226,7 +226,7 @@ class Prediction(models.Model):
     signal_label = models.CharField(max_length=20, default='Neutral')
     rationale = models.JSONField(default=list)
 
-    generated_at = models.DateTimeField(auto_now=True)
+    generated_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         unique_together = ['metal', 'timeframe']
@@ -346,13 +346,13 @@ class PredictionVerification(models.Model):
     METAL_CHOICES = [("gold", "Gold"), ("silver", "Silver")]
 
     TIMEFRAME_CHOICES = [
-        ("1m", "1 Minute"),
-        ("5m", "5 Minutes"),
-        ("15m", "15 Minutes"),
-        ("1h", "1 Hour"),
         ("1d", "1 Day"),
         ("1w", "1 Week"),
-        ("1mo", "1 Month"),
+        ("2w", "2 Weeks"),
+        ("1m", "1 Month"),
+        ("3m", "3 Months"),
+        ("6m", "6 Months"),
+        ("1y", "1 Year"),
     ]
 
     # ── Identity ──────────────────────────────────────────────────────────────
@@ -366,16 +366,20 @@ class PredictionVerification(models.Model):
     )
 
     # ── Prices ────────────────────────────────────────────────────────────────
+    previous_price = models.FloatField(
+        default=0,
+        help_text="Market price at the time the prediction was generated"
+    )
     predicted_price = models.FloatField()
     actual_price = models.FloatField()
     predicted_direction = models.CharField(
-        max_length=5,
-        choices=[("up", "Up"), ("down", "Down")],
+        max_length=10,
+        choices=[("up", "Up"), ("down", "Down"), ("sideways", "Sideways")],
         default="up",
     )
     actual_direction = models.CharField(
-        max_length=5,
-        choices=[("up", "Up"), ("down", "Down")],
+        max_length=10,
+        choices=[("up", "Up"), ("down", "Down"), ("sideways", "Sideways")],
         default="up",
     )
 

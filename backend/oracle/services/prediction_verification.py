@@ -55,30 +55,43 @@ class VerificationStats:
 # ─────────────────────────────────────────────────────────────────────────────
 
 HORIZON_DELTA = {
-    "1m":  timedelta(minutes=1),
-    "5m":  timedelta(minutes=5),
-    "15m": timedelta(minutes=15),
-    "1h":  timedelta(hours=1),
     "1d":  timedelta(days=1),
     "1w":  timedelta(days=7),
-    "1mo": timedelta(days=30),
+    "2w":  timedelta(days=14),
+    "1m":  timedelta(days=30),
+    "3m":  timedelta(days=90),
+    "6m":  timedelta(days=180),
+    "1y":  timedelta(days=365),
 }
+
+
+def _classify_direction(change_pct: float) -> str:
+    """Classify market direction from a percentage change."""
+    if change_pct > 0.25:
+        return "up"
+    elif change_pct < -0.25:
+        return "down"
+    else:
+        return "sideways"
 
 
 def _closest_bar_price(metal: str, timeframe: str, target_dt: datetime) -> Optional[float]:
     """
     Find the closing price of the bar closest to target_dt.
-    Looks in a ±2-period window to handle weekends/gaps.
+    Always uses '1d' PriceBars since they are the most reliable source
+    (other timeframes like '1w', '6m' don't exist in PriceBar).
     """
-    delta = HORIZON_DELTA.get(timeframe, timedelta(days=1))
-    window_start = target_dt - delta * 2
-    window_end = target_dt + delta * 2
+    # Use 1d bars — they exist for every day and cover all timeframes
+    bar_tf = "1d"
+    # Search window: ±2 days around target_dt
+    window_start = target_dt - timedelta(days=2)
+    window_end = target_dt + timedelta(days=2)
 
     bar = (
         PriceBar.objects
         .filter(
             metal=metal,
-            timeframe=timeframe,
+            timeframe=bar_tf,
             timestamp__gte=window_start,
             timestamp__lte=window_end,
         )
@@ -148,58 +161,45 @@ def verify_predictions(
             )
             continue
 
-        # Determine directions
-        prev_price = _closest_bar_price(metal, timeframe, pred_dt - delta)
+        # previous_price: market price at the time the prediction was generated
+        prev_price = _closest_bar_price(metal, timeframe, pred_dt)
         if prev_price is None:
-            prev_price = pred.predicted_usd  # fallback: compare against itself
+            prev_price = pred.current_price_usd  # fallback: use prediction's stored current price
 
         change_pct = ((actual_price - prev_price) / prev_price) * 100
-
-        if change_pct > 0.25:
-            actual_dir = "up"
-        elif change_pct < -0.25:
-             actual_dir = "down"
-        else:
-             actual_dir = "sideways"
+        actual_dir = _classify_direction(change_pct)
 
         predicted_dir = getattr(pred, "direction", None)
         if predicted_dir is None:
-            # Infer from predicted_usd vs price at prediction time
-            base_price = _closest_bar_price(metal, timeframe, pred_dt)
-            if base_price:
-                    pred_change_pct = ( (pred.predicted_usd - base_price) / base_price) * 100
-
-                    if pred_change_pct > 0.25:
-                         
-                            predicted_dir = "up"
-                    elif pred_change_pct < -0.25:
-                            predicted_dir = "down"
-                    else:
-                             predicted_dir = "sideways"
+            # Infer from predicted_usd vs previous_price (same baseline as actual direction)
+            pred_change_pct = ((pred.predicted_usd - prev_price) / prev_price) * 100
+            predicted_dir = _classify_direction(pred_change_pct)
 
         verification = PredictionVerification(
             metal=metal,
             timeframe=timeframe,
             prediction_date=pred_dt,
             target_date=target_dt,
+            previous_price=float(prev_price),
             predicted_price=float(pred.predicted_usd),
             actual_price=actual_price,
             predicted_direction=predicted_dir,
             actual_direction=actual_dir,
         )
         logger.info(
-                 f"Predicted={predicted_dir} "
-                f"Actual={actual_dir} "
-                f"Change={change_pct:.2f}%"
+            f"[VERIFY] Previous={prev_price:.2f} | "
+            f"Predicted={pred.predicted_usd:.2f} | "
+            f"Actual={actual_price:.2f} | "
+            f"Change={change_pct:.2f}% | "
+            f"PredDir={predicted_dir} | "
+            f"ActDir={actual_dir}"
         )
         # save() auto-computes absolute_error, percentage_error, direction_correct
         new_records.append(verification)
 
-        if new_records:
-
-            for verification in new_records:
-                    
-                    verification.save()
+    if new_records:
+        for verification in new_records:
+            verification.save()
 
         logger.info(
             "Created %d new PredictionVerification records for %s/%s",
@@ -211,15 +211,17 @@ def verify_predictions(
 
 
 def compute_verification_stats(
-    metal: str, timeframe: str
+    metal: str, timeframe: Optional[str] = None
 ) -> VerificationStats:
     """
     Compute MAE, RMSE, MAPE, Directional Accuracy from stored verifications.
+    When timeframe is None, aggregates across ALL timeframes for the given metal.
     """
+    q = PredictionVerification.objects.filter(metal=metal)
+    if timeframe is not None:
+        q = q.filter(timeframe=timeframe)
     records = list(
-        PredictionVerification.objects
-        .filter(metal=metal, timeframe=timeframe)
-        .values(
+        q.values(
             "absolute_error",
             "percentage_error",
             "direction_correct",
@@ -228,9 +230,11 @@ def compute_verification_stats(
         )
     )
 
+    tf_label = timeframe if timeframe is not None else "all"
+
     if not records:
         return VerificationStats(
-            metal=metal, timeframe=timeframe,
+            metal=metal, timeframe=tf_label,
             total_verified=0,
             mae=0.0, rmse=0.0, mape=0.0,
             directional_accuracy=0.0,
@@ -254,7 +258,7 @@ def compute_verification_stats(
 
     return VerificationStats(
         metal=metal,
-        timeframe=timeframe,
+        timeframe=tf_label,
         total_verified=len(records),
         mae=round(mae, 4),
         rmse=round(rmse, 4),
@@ -268,7 +272,7 @@ def compute_verification_stats(
 def run_full_verification() -> Dict[str, VerificationStats]:
     """Run verification for all metal × timeframe combinations."""
     metals = ["gold", "silver"]
-    timeframes = ["1d", "1w", "1mo"]
+    timeframes = ["1d", "1w", "2w", "1m", "3m", "6m", "1y"]
     results = {}
     for metal in metals:
         for timeframe in timeframes:

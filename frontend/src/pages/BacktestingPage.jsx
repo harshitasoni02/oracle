@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { BarChart2, ArrowLeft, FlaskConical, AlertTriangle, ChevronUp, ChevronDown, Clock } from 'lucide-react'
 
-import { api } from '../services/api'
+import { api } from '../services/api.js'
 import AccuracyCards from '../components/backtesting/AccuracyCards'
 import StrategyTable from '../components/backtesting/StrategyTable'
 import {
@@ -103,49 +103,6 @@ function StrategyRanking({ results }) {
   )
 }
 
-// ── Prediction Verification Placeholder ────────────────────────────────────
-// TASK 7 — placeholder for future MAE / RMSE / MAPE section
-
-function PredictionVerificationPlaceholder() {
-  return (
-    <div className="bg-surface border border-dashed border-border rounded-xl p-5">
-      <div className="flex items-center gap-2 mb-3">
-        <Clock size={14} className="text-muted" />
-        <h3 className="text-sm font-semibold text-muted">Prediction Verification</h3>
-        <span className="text-[10px] px-1.5 py-0.5 rounded bg-border text-muted font-medium">
-          COMING SOON
-        </span>
-      </div>
-      <p className="text-xs text-muted/70 mb-4">
-        This section will display prediction accuracy metrics once the
-        verification engine is wired up.
-      </p>
-      {/* Placeholder metric boxes */}
-      <div className="grid grid-cols-3 gap-3">
-        {['MAE', 'RMSE', 'MAPE'].map((label) => (
-          <div
-            key={label}
-            className="bg-bg border border-dashed border-border rounded-lg p-3 text-center"
-          >
-            <p className="text-xs text-muted/50 font-semibold mb-1">{label}</p>
-            <p className="mono text-lg text-muted/30">—</p>
-            <p className="text-[10px] text-muted/40 mt-1">
-              {label === 'MAE' && 'Mean Absolute Error'}
-              {label === 'RMSE' && 'Root Mean Sq. Error'}
-              {label === 'MAPE' && 'Mean Abs. % Error'}
-            </p>
-          </div>
-        ))}
-      </div>
-      {/* TODO marker for the developer */}
-      <p className="text-[10px] text-muted/40 mt-3 font-mono">
-        {/* TODO: connect GET /api/backtesting/verification/?metal=&timeframe= */}
-        {/* TODO: connect GET /api/backtesting/history/ for prediction log */}
-      </p>
-    </div>
-  )
-}
-
 // ── Loading skeleton for summary cards row ─────────────────────────────────
 
 function SummaryCardsSkeleton() {
@@ -222,7 +179,6 @@ const verificationHistoryQuery = useQuery({
   const verification = verificationQuery.data
   const verificationHistory =
   verificationHistoryQuery.data?.results || []
-  console.log("verificationHistory", verificationHistory)
 
 
 
@@ -382,9 +338,7 @@ const verificationHistoryQuery = useQuery({
           </div>
         )}
 
-        {/* ── Prediction Verification placeholder (TASK 7) ───────────────── */}
-
-        
+        {/* ── Prediction Verification ──────────────────────────────────── */}
 
         <div className="bg-surface border border-border rounded-xl p-5">
   <div className="flex items-center gap-2 mb-4">
@@ -435,26 +389,36 @@ const verificationHistoryQuery = useQuery({
     <table className="w-full text-sm">
       <thead>
         <tr className="border-b border-border">
-          <th className="text-left py-2">Predicted</th>
-          <th className="text-left py-2">Actual</th>
+          <th className="text-left py-2">Previous Price</th>
+          <th className="text-left py-2">Predicted Price</th>
+          <th className="text-left py-2">Actual Price</th>
           <th className="text-left py-2">Error %</th>
           <th className="text-left py-2">Direction</th>
         </tr>
       </thead>
 
       <tbody>
-        {verificationHistory.map((item, index) => (
-          <tr key={index} className="border-b border-border/30">
-            <td className="py-2">{item.predicted_price?.toFixed(2)}</td>
-            <td className="py-2">{item.actual_price?.toFixed(2)}</td>
-            <td className="py-2">
-              {item.percentage_error?.toFixed(2)}%
-            </td>
-            <td className="py-2">
-              {item.direction_correct ? '✅' : '❌'}
-            </td>
-          </tr>
-        ))}
+        {verificationHistory.map((item, index) => {
+          const dirLabel = item.actual_direction === 'up' ? 'UP'
+                           : item.actual_direction === 'down' ? 'DOWN'
+                           : 'SIDEWAYS'
+          const dirColor = item.actual_direction === 'up' ? 'text-bull'
+                          : item.actual_direction === 'down' ? 'text-bear'
+                          : 'text-muted'
+          return (
+            <tr key={index} className="border-b border-border/30">
+              <td className="py-2 mono">{item.previous_price?.toFixed(2)}</td>
+              <td className="py-2 mono">{item.predicted_price?.toFixed(2)}</td>
+              <td className="py-2 mono">{item.actual_price?.toFixed(2)}</td>
+              <td className="py-2 mono">
+                {item.percentage_error?.toFixed(2)}%
+              </td>
+              <td className={`py-2 font-semibold ${dirColor}`}>
+                {dirLabel}
+              </td>
+            </tr>
+          )
+        })}
       </tbody>
     </table>
   </div>

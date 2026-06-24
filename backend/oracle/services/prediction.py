@@ -216,6 +216,59 @@ def _long_term_prediction(
     }
 
 
+def _archive_prediction(metal: str, timeframe: str, current_price_usd: float):
+    """
+    If an existing Prediction exists for this metal+timeframe, archive it
+    into PredictionVerification using the current price as the actual price.
+    This ensures we build a history of verified predictions over time.
+    """
+    from datetime import timedelta
+    from oracle.models import Prediction, PredictionVerification
+
+    existing = Prediction.objects.filter(metal=metal, timeframe=timeframe).first()
+    if not existing:
+        return
+
+    # Map timeframe to horizon delta for target_date calculation
+    horizon_map = {
+        '1d': timedelta(days=1),
+        '1w': timedelta(days=7),
+        '2w': timedelta(days=14),
+        '1m': timedelta(days=30),
+        '3m': timedelta(days=90),
+        '6m': timedelta(days=180),
+        '1y': timedelta(days=365),
+    }
+    delta = horizon_map.get(timeframe, timedelta(days=1))
+    target_date = existing.generated_at + delta
+
+    # Determine actual direction: compare current price vs price at prediction time
+    actual_direction = 'up' if current_price_usd > existing.current_price_usd else 'down'
+    if abs(current_price_usd - existing.current_price_usd) / existing.current_price_usd < 0.0025:
+        actual_direction = 'sideways'
+
+    predicted_direction = getattr(existing, 'direction', 'up')
+
+    try:
+        PredictionVerification.objects.create(
+            metal=metal,
+            timeframe=timeframe,
+            prediction_date=existing.generated_at,
+            target_date=target_date,
+            predicted_price=float(existing.predicted_usd),
+            actual_price=current_price_usd,
+            predicted_direction=predicted_direction,
+            actual_direction=actual_direction,
+        )
+        logger.info(
+            f"Archived prediction for {metal}/{timeframe}: "
+            f"predicted={predicted_direction} actual={actual_direction} "
+            f"pred_price=${existing.predicted_usd:.2f} actual_price=${current_price_usd:.2f}"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to archive prediction for {metal}/{timeframe}: {e}")
+
+
 def generate_predictions(metal: str):
     """Generate and save all predictions for a metal."""
     from oracle.models import IndicatorSnapshot, Prediction, PriceSnapshot, SentimentSnapshot
@@ -253,9 +306,12 @@ def generate_predictions(metal: str):
     # Get daily bars for long-term regression
     df_daily = get_bars_as_dataframe(metal, '1d', limit=750)
     # Get weekly bars for 1Y regression
-    df_weekly = get_bars_as_dataframe(metal, '1wk', limit=300)
+    df_weekly = get_bars_as_dataframe(metal, '1w', limit=300)
 
     for tf in ['1d', '1w', '2w']:
+        # Archive old prediction before overwriting
+        _archive_prediction(metal, tf, current_price)
+
         pred = _short_term_prediction(
             current_price, atr_val, composite, tf, metal, usdinr,
             ind_signals, sentiment_snapshot=sent_snap,
@@ -273,6 +329,9 @@ def generate_predictions(metal: str):
         )
 
     for tf, days in LONG_TERM_TIMEFRAMES.items():
+        # Archive old prediction before overwriting
+        _archive_prediction(metal, tf, current_price)
+
         df = df_weekly if tf == '1y' else df_daily
         pred = _long_term_prediction(df, days, metal, usdinr, sentiment_snapshot=sent_snap)
         if not pred:

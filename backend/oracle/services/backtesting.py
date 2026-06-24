@@ -508,7 +508,7 @@ def run_full_backtest_suite() -> dict:
     """
     metals = ["gold", "silver"]
     timeframes = ["1d", "1w"]
-    horizons = ["1d", "1w"]
+    horizons = ["1d", "1w", "1mo"]
 
     summary = {}
     for metal in metals:
