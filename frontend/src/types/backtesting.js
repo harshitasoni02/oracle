@@ -8,7 +8,6 @@ export const STRATEGY_LABELS = {
   rsi: "RSI",
   macd: "MACD",
   composite: "Composite",
-  sentiment: "Sentiment",
 };
 
 export const TIMEFRAME_LABELS = {
@@ -27,9 +26,9 @@ export const HORIZON_LABELS = {
 
 /**
  * @typedef {"gold"|"silver"} Metal
- * @typedef {"1d"|"1w"|"1mo"} Timeframe
- * @typedef {"1d"|"1w"|"1mo"} Horizon
- * @typedef {"rsi"|"macd"|"composite"|"sentiment"} Strategy
+ * @typedef {"1d"|"1w"} Timeframe
+ * @typedef {"1d"|"1w"} Horizon
+ * @typedef {"rsi"|"macd"|"composite"} Strategy
  * @typedef {"up"|"down"} Direction
  */
 
@@ -72,6 +71,7 @@ export const HORIZON_LABELS = {
  * @property {Timeframe} timeframe
  * @property {string}    prediction_date
  * @property {string}    target_date
+ * @property {number}    previous_price
  * @property {number}    predicted_price
  * @property {number}    actual_price
  * @property {Direction} predicted_direction

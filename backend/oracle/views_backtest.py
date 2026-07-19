@@ -41,7 +41,7 @@ class BacktestResultListView(APIView):
     """
 
     def get(self, request):
-        qs = BacktestResult.objects.all()
+        qs = BacktestResult.objects.exclude(strategy="sentiment")
 
         metal = request.query_params.get("metal")
         timeframe = request.query_params.get("timeframe")
@@ -83,7 +83,7 @@ class BacktestSummaryView(APIView):
         for tf in timeframes:
             results = BacktestResult.objects.filter(
                 metal=metal, timeframe=tf, horizon=horizon
-            )
+            ).exclude(strategy="sentiment")
             if not results.exists():
                 continue
 
@@ -111,18 +111,21 @@ class PredictionVerificationListView(APIView):
     """
     Paginated list of individual PredictionVerification records.
     Supports: ?metal=gold&timeframe=1d&page=1&page_size=50
+    Only returns 1d and 1w verifications.
     """
 
     def get(self, request):
-        qs = PredictionVerification.objects.all()
-
         metal = request.query_params.get("metal")
         timeframe = request.query_params.get("timeframe")
         direction_filter = request.query_params.get("direction_correct")
 
+        qs = PredictionVerification.objects.filter(
+            timeframe__in=["1d", "1w"]
+        )
+
         if metal:
             qs = qs.filter(metal=metal)
-        if timeframe:
+        if timeframe and timeframe in ("1d", "1w"):
             qs = qs.filter(timeframe=timeframe)
         if direction_filter is not None:
             qs = qs.filter(direction_correct=direction_filter.lower() == "true")
@@ -156,7 +159,8 @@ class VerificationStatsView(APIView):
     """
     Returns aggregate MAE, RMSE, MAPE, Directional Accuracy.
     Supports: ?metal=gold&timeframe=1d
-    When timeframe is omitted, aggregates across all timeframes.
+    Only includes 1d and 1w verifications.
+    When timeframe is omitted, aggregates across both 1d and 1w.
     """
 
     def get(self, request):
@@ -165,10 +169,17 @@ class VerificationStatsView(APIView):
         metal = request.query_params.get("metal", "gold")
         timeframe = request.query_params.get("timeframe")
 
+        # Only allow 1d and 1w
+        if timeframe and timeframe not in ("1d", "1w"):
+            return Response(
+                {"error": "timeframe must be '1d' or '1w'"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         if timeframe:
             stats = compute_verification_stats(metal=metal, timeframe=timeframe)
         else:
-            # Aggregate across all timeframes for the given metal
+            # Aggregate across both 1d and 1w
             stats = compute_verification_stats(metal=metal, timeframe=None)
         serializer = VerificationStatsSerializer(stats.__dict__)
         return Response(serializer.data)

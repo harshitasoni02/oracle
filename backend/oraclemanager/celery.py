@@ -49,7 +49,12 @@ app.conf.beat_schedule = {
         'task': 'oracle.tasks_backtest.run_backtest_task',
         'schedule': crontab(hour=1, minute=0),
     },
-    # Verify predictions daily at 02:00 UTC
+    # Verify scheduled predictions every minute (1d and 1w only)
+    'verify-scheduled-predictions': {
+        'task': 'oracle.tasks_backtest.verify_scheduled_predictions',
+        'schedule': 60,
+    },
+    # Verify predictions daily at 02:00 UTC (manual trigger fallback)
     'verify-predictions-daily': {
         'task': 'oracle.tasks_backtest.verify_predictions_task',
         'schedule': crontab(hour=2, minute=0),

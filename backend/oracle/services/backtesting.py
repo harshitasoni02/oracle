@@ -207,10 +207,10 @@ def _sentiment_signals(df: pd.DataFrame, metal: str) -> pd.Series:
         day = pd.Timestamp(idx).normalize()
         if day in sent_df.index:
             row = sent_df.loc[day]
-            label = row["signal_label"] if isinstance(row, pd.Series) else row.iloc[-1]["label"]
-            if label == "positive":
+            label = row["signal_label"] if isinstance(row, pd.Series) else row.iloc[-1]["signal_label"]
+            if label in ("Bullish", "Strong Bullish"):
                 signals.at[idx] = 1
-            elif label == "negative":
+            elif label in ("Bearish", "Strong Bearish"):
                 signals.at[idx] = -1
 
     return signals
@@ -477,9 +477,9 @@ class BacktestEngine:
     # ── Run all strategies ────────────────────────────────────────────────────
 
     def run_all(self) -> List[BacktestMetrics]:
-        """Run all 4 strategies and return a list of BacktestMetrics."""
+        """Run all 3 strategies and return a list of BacktestMetrics."""
         results = []
-        for strategy in ["rsi", "macd", "composite", "sentiment"]:
+        for strategy in ["rsi", "macd", "composite"]:
             try:
                 results.append(self.run_strategy(strategy))
             except Exception as exc:

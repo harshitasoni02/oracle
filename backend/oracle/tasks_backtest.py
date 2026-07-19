@@ -52,6 +52,22 @@ def run_backtest_task(self, metal: str = None, timeframe: str = None, horizon: s
         raise self.retry(exc=exc)
 
 
+@shared_task(name='oracle.tasks_backtest.verify_scheduled_predictions')
+def verify_scheduled_predictions():
+    """
+    Scheduled task (runs every minute via Celery beat).
+    Verifies all 1d/1w predictions whose target_date has passed.
+    Deduplicates by checking existing PredictionVerification records.
+    """
+    from oracle.services.prediction_verification import verify_scheduled_predictions as _verify
+    try:
+        created = _verify()
+        return {"status": "ok", "created": created}
+    except Exception as exc:
+        logger.exception("Scheduled verification failed: %s", exc)
+        return {"status": "error", "error": str(exc)}
+
+
 @shared_task(bind=True, max_retries=2, default_retry_delay=120)
 def verify_predictions_task(self, metal: str = None, timeframe: str = None):
     """

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { BarChart2, ArrowLeft, FlaskConical, AlertTriangle, ChevronUp, ChevronDown, Clock } from 'lucide-react'
+import { BarChart2, ArrowLeft, FlaskConical, AlertTriangle, Clock } from 'lucide-react'
 
 import { api } from '../services/api.js'
 import AccuracyCards from '../components/backtesting/AccuracyCards'
@@ -16,12 +16,12 @@ import {
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const METALS   = ['gold', 'silver']
-const HORIZONS = ['1d', '1w', '1mo']
+const HORIZONS = ['1d', '1w']
 
-const HORIZON_LABELS = { '1d': 'Next Day', '1w': 'Next Week', '1mo': 'Next Month' }
+const HORIZON_LABELS = { '1d': 'Next Day', '1w': 'Next Week' }
 const METAL_EMOJI    = { gold: '🥇', silver: '🥈' }
 const STRATEGY_DISPLAY = {
-  rsi: 'RSI', macd: 'MACD', composite: 'Composite', sentiment: 'Sentiment',
+  rsi: 'RSI', macd: 'MACD', composite: 'Composite',
 }
 
 // ── Small reusable selector button group ───────────────────────────────────
@@ -144,6 +144,10 @@ export default function BacktestingPage() {
   const [horizon, setHorizon] = useState('1w')
   const navigate              = useNavigate()
 
+  // Map backtest horizon → prediction timeframe for verification filtering
+  const HORIZON_TO_TIMEFRAME = { '1d': '1d', '1w': '1w' }
+  const predTimeframe = HORIZON_TO_TIMEFRAME[horizon] || '1d'
+
   // ── API calls ────────────────────────────────────────────────────────────
 
   const resultsQuery = useQuery({
@@ -160,14 +164,14 @@ export default function BacktestingPage() {
     retry: 2,
   })
   const verificationQuery = useQuery({
-  queryKey: ['verification-stats', metal],
-  queryFn: () => api.getVerificationStats(metal),
+  queryKey: ['verification-stats', metal, predTimeframe],
+  queryFn: () => api.getVerificationStats(metal, predTimeframe),
   staleTime: 5 * 60 * 1000,
   retry: 2,
 })
 const verificationHistoryQuery = useQuery({
-  queryKey: ['verification-history', metal],
-  queryFn: () => api.getVerificationHistory(metal),
+  queryKey: ['verification-history', metal, predTimeframe],
+  queryFn: () => api.getVerificationHistory(metal, predTimeframe),
   staleTime: 5 * 60 * 1000,
   retry: 2,
 })
@@ -245,7 +249,7 @@ const verificationHistoryQuery = useQuery({
             onChange={setHorizon}
           />
           <div className="ml-auto text-xs text-muted">
-            Evaluating RSI · MACD · Composite · Sentiment strategies
+            Evaluating RSI · MACD · Composite strategies
           </div>
         </div>
 
@@ -382,49 +386,75 @@ const verificationHistoryQuery = useQuery({
   </div>
   <div className="mt-5">
     <h4 className="text-sm font-semibold text-muted mb-3">
-  Verification History ({verificationHistory.length})
+      Verification History ({verificationHistory.length})
     </h4>
 
-  <div className="overflow-x-auto">
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="border-b border-border">
-          <th className="text-left py-2">Previous Price</th>
-          <th className="text-left py-2">Predicted Price</th>
-          <th className="text-left py-2">Actual Price</th>
-          <th className="text-left py-2">Error %</th>
-          <th className="text-left py-2">Direction</th>
-        </tr>
-      </thead>
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border">
+            <th className="text-left py-2 whitespace-nowrap">Prediction Date</th>
+            <th className="text-left py-2 whitespace-nowrap">Target Date</th>
+            <th className="text-left py-2 whitespace-nowrap">Previous Price</th>
+            <th className="text-left py-2 whitespace-nowrap">Predicted Price</th>
+            <th className="text-left py-2 whitespace-nowrap">Actual Price</th>
+            <th className="text-left py-2 whitespace-nowrap">Error %</th>
+            <th className="text-left py-2 whitespace-nowrap">Direction</th>
+          </tr>
+        </thead>
 
-      <tbody>
-        {verificationHistory.map((item, index) => {
-          const dirLabel = item.actual_direction === 'up' ? 'UP'
-                           : item.actual_direction === 'down' ? 'DOWN'
-                           : 'SIDEWAYS'
-          const dirColor = item.actual_direction === 'up' ? 'text-bull'
-                          : item.actual_direction === 'down' ? 'text-bear'
-                          : 'text-muted'
-          return (
-            <tr key={index} className="border-b border-border/30">
-              <td className="py-2 mono">{item.previous_price?.toFixed(2)}</td>
-              <td className="py-2 mono">{item.predicted_price?.toFixed(2)}</td>
-              <td className="py-2 mono">{item.actual_price?.toFixed(2)}</td>
-              <td className="py-2 mono">
-                {item.percentage_error?.toFixed(2)}%
-              </td>
-              <td className={`py-2 font-semibold ${dirColor}`}>
-                {dirLabel}
-              </td>
-            </tr>
-          )
-        })}
-      </tbody>
-    </table>
+        <tbody>
+          {verificationHistory.map((item, index) => {
+            const predDate = item.prediction_date ? new Date(item.prediction_date) : null
+            const targetDate = item.target_date ? new Date(item.target_date) : null
+            const dirLabel = item.actual_direction === 'up' ? 'UP'
+                             : item.actual_direction === 'down' ? 'DOWN'
+                             : 'SIDEWAYS'
+            const dirColor = item.actual_direction === 'up' ? 'text-green-400'
+                            : item.actual_direction === 'down' ? 'text-red-400'
+                            : 'text-muted'
+
+            // Format as "24 Jun 2026 01:45 AM"
+            function formatDateTime(d) {
+              if (!d) return '--'
+              const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+              const day = d.getDate()
+              const month = months[d.getMonth()]
+              const year = d.getFullYear()
+              let hours = d.getHours()
+              const minutes = String(d.getMinutes()).padStart(2, '0')
+              const ampm = hours >= 12 ? 'PM' : 'AM'
+              hours = hours % 12 || 12
+              return `${day} ${month} ${year} ${hours}:${minutes} ${ampm}`
+            }
+
+            return (
+              <tr key={index} className="border-b border-border/30">
+                <td className="py-2 text-xs whitespace-nowrap">
+                  {formatDateTime(predDate)}
+                </td>
+                <td className="py-2 text-xs whitespace-nowrap">
+                  {targetDate ? targetDate.toLocaleDateString() : '--'}
+                </td>
+                <td className="py-2 mono">${item.previous_price?.toFixed(2)}</td>
+                <td className="py-2 mono">${item.predicted_price?.toFixed(2)}</td>
+                <td className="py-2 mono">${item.actual_price?.toFixed(2)}</td>
+                <td className="py-2 mono">
+                  <span style={{ color: item.percentage_error <= 2 ? '#3FB950' : item.percentage_error <= 5 ? '#F0A500' : '#F85149' }}>
+                    {item.percentage_error?.toFixed(2)}%
+                  </span>
+                </td>
+                <td className={`py-2 font-semibold ${dirColor}`}>
+                  {dirLabel}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
-</div>
-
 
       </main>
     </div>

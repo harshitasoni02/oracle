@@ -30,7 +30,6 @@ const STRATEGY_DISPLAY = {
   rsi: 'RSI',
   macd: 'MACD',
   composite: 'Composite',
-  sentiment: 'Sentiment',
 }
 
 const COLUMNS = [

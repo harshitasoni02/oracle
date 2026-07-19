@@ -213,6 +213,10 @@ class Prediction(models.Model):
     current_price_usd = models.FloatField(default=0)
     current_price_inr = models.FloatField(default=0)
 
+    # Backtesting / verification fields
+    previous_price_usd = models.FloatField(default=0, help_text="Price at prediction time")
+    target_date = models.DateTimeField(null=True, blank=True, help_text="When this prediction expires")
+
     predicted_usd = models.FloatField(default=0)
     predicted_inr = models.FloatField(default=0)
     predicted_high_usd = models.FloatField(default=0)
