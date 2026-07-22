@@ -17,6 +17,7 @@ import logging
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.utils import timezone
 
 from oracle.models import BacktestResult, PredictionVerification
 from oracle.serializers_backtest import (
@@ -120,7 +121,8 @@ class PredictionVerificationListView(APIView):
         direction_filter = request.query_params.get("direction_correct")
 
         qs = PredictionVerification.objects.filter(
-            timeframe__in=["1d", "1w"]
+            timeframe__in=["1d", "1w"],
+            target_date__date__lte=timezone.localdate(),
         )
 
         if metal:

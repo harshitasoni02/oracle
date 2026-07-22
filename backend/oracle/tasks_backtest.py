@@ -54,6 +54,21 @@ def run_backtest_task(self, metal: str = None, timeframe: str = None, horizon: s
 
 @shared_task(name='oracle.tasks_backtest.verify_scheduled_predictions')
 def verify_scheduled_predictions():
+
+    logger.info("=" * 60)
+    logger.info("CELERY VERIFY TASK STARTED")
+    logger.info("=" * 60)
+
+    from oracle.services.prediction_verification import verify_scheduled_predictions as _verify
+
+    created = _verify()
+
+    logger.info("Created %s verifications", created)
+
+    return {
+        "status": "ok",
+        "created": created,
+    }
     """
     Scheduled task (runs every minute via Celery beat).
     Verifies all 1d/1w predictions whose target_date has passed.
@@ -71,7 +86,7 @@ def verify_scheduled_predictions():
 @shared_task(bind=True, max_retries=2, default_retry_delay=120)
 def verify_predictions_task(self, metal: str = None, timeframe: str = None):
     """
-    Verify predictions for a specific combination, or all if no args given.
+    Vwerify predictions for a specific combination, or all if no args given.
     """
     from oracle.services.prediction_verification import (
         run_full_verification,

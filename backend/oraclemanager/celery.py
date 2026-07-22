@@ -29,7 +29,7 @@ app.conf.beat_schedule = {
         'task': 'oracle.tasks.refresh_historical_bars',
         'schedule': crontab(minute=5),
     },
-    # Recompute indicators + predictions every 15 minutes
+    # Recompute indicators every 15 minutes
     'compute-indicators-15min': {
         'task': 'oracle.tasks.compute_all_indicators',
         'schedule': 900,

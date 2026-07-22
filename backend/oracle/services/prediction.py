@@ -44,9 +44,43 @@ SILVER_SEASONAL_BIAS = {1: 0.0, 2: 0.0, 3: 0.005, 4: 0.01}
 def _direction(change_pct: float) -> str:
     if change_pct > 0.25:
         return 'up'
-    if change_pct < 0.25:
+    if change_pct < -0.25:
         return 'down'
     return 'sideways'
+
+
+def _store_official_prediction(
+    metal: str,
+    timeframe: str,
+    generated_at,
+    target_date,
+    current_price_usd: float,
+    pred: dict,
+    signal_label: str,
+):
+    """
+    Store the first 1d/1w prediction generated for each UTC calendar day.
+    Later dashboard refreshes update Prediction but leave this record unchanged.
+    """
+    if timeframe not in ('1d', '1w'):
+        return
+
+    from oracle.models import OfficialPrediction
+
+    OfficialPrediction.objects.get_or_create(
+        metal=metal,
+        timeframe=timeframe,
+        prediction_day=generated_at.date(),
+        defaults={
+            'prediction_date': generated_at,
+            'target_date': target_date,
+            'previous_price_usd': round(current_price_usd, 2),
+            'predicted_usd': float(pred['predicted_usd']),
+            'predicted_direction': pred.get('direction') or 'sideways',
+            'signal_label': signal_label,
+            'confidence': pred.get('confidence', 50),
+        },
+    )
 
 
 def _short_term_prediction(
@@ -217,88 +251,6 @@ def _long_term_prediction(
     }
 
 
-def _archive_prediction(metal: str, timeframe: str, current_price_usd: float):
-    """
-    If an existing Prediction exists for this metal+timeframe, archive it
-    into PredictionVerification using the current price as the actual price.
-    This ensures we build a history of verified predictions over time.
-
-    Only ONE verification record is created per (metal, timeframe) per calendar day.
-    If a verification already exists for today, we skip — the earliest prediction
-    of the day has already been archived.
-    """
-    from datetime import timedelta
-    from django.utils import timezone
-    from oracle.models import Prediction, PredictionVerification
-
-    existing = Prediction.objects.filter(metal=metal, timeframe=timeframe).first()
-    if not existing:
-        return
-
-    # Check if we already have a verification record for today.
-    # If yes, the earliest prediction of the day was already archived — skip.
-    today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    already_verified_today = PredictionVerification.objects.filter(
-        metal=metal,
-        timeframe=timeframe,
-        prediction_date__gte=today_start,
-    ).exists()
-
-    if already_verified_today:
-        logger.debug(
-            "Skipping archive for %s/%s — already verified today (%s)",
-            metal, timeframe, today_start.date(),
-        )
-        return
-
-    # Map timeframe to horizon delta for target_date calculation
-    horizon_map = {
-        '1d': timedelta(days=1),
-        '1w': timedelta(days=7),
-        '2w': timedelta(days=14),
-        '1m': timedelta(days=30),
-        '3m': timedelta(days=90),
-        '6m': timedelta(days=180),
-        '1y': timedelta(days=365),
-    }
-    delta = horizon_map.get(timeframe, timedelta(days=1))
-    target_date = existing.generated_at + delta
-
-    # Determine actual direction: compare current price vs price at prediction time
-    actual_direction = 'up' if current_price_usd > existing.current_price_usd else 'down'
-    if abs(current_price_usd - existing.current_price_usd) / existing.current_price_usd < 0.0025:
-        actual_direction = 'sideways'
-
-    predicted_direction = getattr(existing, 'direction', 'up')
-
-    # Use previous_price_usd if available, fall back to current_price_usd
-    prev_price = float(
-        existing.previous_price_usd
-        if existing.previous_price_usd and existing.previous_price_usd > 0
-        else existing.current_price_usd
-    )
-
-    try:
-        PredictionVerification.objects.create(
-            metal=metal,
-            timeframe=timeframe,
-            prediction_date=existing.generated_at,
-            target_date=target_date,
-            previous_price=prev_price,
-            predicted_price=float(existing.predicted_usd),
-            actual_price=current_price_usd,
-            predicted_direction=predicted_direction,
-            actual_direction=actual_direction,
-        )
-        logger.info(
-            f"Archived prediction for {metal}/{timeframe}: "
-            f"prev=${prev_price:.2f} predicted={predicted_direction} actual={actual_direction} "
-            f"pred_price=${existing.predicted_usd:.2f} actual_price=${current_price_usd:.2f}"
-        )
-    except Exception as e:
-        logger.warning(f"Failed to archive prediction for {metal}/{timeframe}: {e}")
-
-
 def generate_predictions(metal: str):
     """Generate and save all predictions for a metal."""
     from datetime import timedelta
@@ -351,17 +303,24 @@ def generate_predictions(metal: str):
     df_weekly = get_bars_as_dataframe(metal, '1w', limit=300)
 
     for tf in ['1d', '1w', '2w']:
-        # Archive old prediction before overwriting
-        _archive_prediction(metal, tf, current_price)
-
         pred = _short_term_prediction(
             current_price, atr_val, composite, tf, metal, usdinr,
             ind_signals, sentiment_snapshot=sent_snap,
         )
         if not pred:
             continue
+        generated_at = datetime.now(timezone.utc)
         delta = HORIZON_DELTA.get(tf, timedelta(days=1))
-        target_date = datetime.now(timezone.utc) + delta
+        target_date = generated_at + delta
+        _store_official_prediction(
+            metal=metal,
+            timeframe=tf,
+            generated_at=generated_at,
+            target_date=target_date,
+            current_price_usd=current_price,
+            pred=pred,
+            signal_label=signal_label,
+        )
         Prediction.objects.update_or_create(
             metal=metal, timeframe=tf,
             defaults={
@@ -370,21 +329,19 @@ def generate_predictions(metal: str):
                 'previous_price_usd': round(current_price, 2),
                 'target_date': target_date,
                 'signal_label': signal_label,
-                'generated_at': datetime.now(timezone.utc),
+                'generated_at': generated_at,
                 **pred,
             }
         )
 
     for tf, days in LONG_TERM_TIMEFRAMES.items():
-        # Archive old prediction before overwriting
-        _archive_prediction(metal, tf, current_price)
-
         df = df_weekly if tf == '1y' else df_daily
         pred = _long_term_prediction(df, days, metal, usdinr, sentiment_snapshot=sent_snap)
         if not pred:
             continue
+        generated_at = datetime.now(timezone.utc)
         delta = HORIZON_DELTA.get(tf, timedelta(days=1))
-        target_date = datetime.now(timezone.utc) + delta
+        target_date = generated_at + delta
         Prediction.objects.update_or_create(
             metal=metal, timeframe=tf,
             defaults={
@@ -393,7 +350,7 @@ def generate_predictions(metal: str):
                 'previous_price_usd': round(current_price, 2),
                 'target_date': target_date,
                 'signal_label': signal_label,
-                'generated_at': datetime.now(timezone.utc),
+                'generated_at': generated_at,
                 **pred,
             }
         )

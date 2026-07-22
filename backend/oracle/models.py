@@ -238,6 +238,47 @@ class Prediction(models.Model):
 
     def __str__(self):
         return f"{self.metal} {self.timeframe}: {self.direction} @ ${self.predicted_usd:.2f}"
+
+
+class OfficialPrediction(models.Model):
+    """
+    Daily prediction snapshot used only for backtesting verification.
+
+    The live dashboard keeps updating Prediction rows throughout the day.  This
+    table stores one fixed "official" 1d/1w prediction per metal per UTC
+    calendar day so verification has a stable pending record to check later.
+    """
+    METAL_CHOICES = [('gold', 'Gold'), ('silver', 'Silver')]
+    TIMEFRAME_CHOICES = [
+        ('1d', '1 Day'),
+        ('1w', '1 Week'),
+    ]
+    DIRECTION_CHOICES = [
+        ('up', 'Bullish'),
+        ('down', 'Bearish'),
+        ('sideways', 'Sideways'),
+    ]
+
+    metal = models.CharField(max_length=10, choices=METAL_CHOICES, db_index=True)
+    timeframe = models.CharField(max_length=5, choices=TIMEFRAME_CHOICES, db_index=True)
+    prediction_day = models.DateField(db_index=True)
+    prediction_date = models.DateTimeField(db_index=True)
+    target_date = models.DateTimeField(db_index=True)
+
+    previous_price_usd = models.FloatField(default=0)
+    predicted_usd = models.FloatField(default=0)
+    predicted_direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES, default='sideways')
+    signal_label = models.CharField(max_length=20, default='Neutral')
+    confidence = models.IntegerField(default=50)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ['metal', 'timeframe', 'prediction_day']
+        ordering = ['-prediction_date']
+
+    def __str__(self):
+        return f"{self.metal} {self.timeframe} official {self.prediction_day}: ${self.predicted_usd:.2f}"
     
 
     # backend/oracle/models.py  (ADD these two classes to your existing models.py)
@@ -428,4 +469,3 @@ class PredictionVerification(models.Model):
             f"{self.prediction_date:%Y-%m-%d} → {self.target_date:%Y-%m-%d} | "
             f"err={self.percentage_error:.2f}%"
         )
-

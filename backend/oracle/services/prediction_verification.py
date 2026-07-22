@@ -6,7 +6,7 @@ Automatically verifies 1-day and 1-week predictions against actual market prices
 
 Flow:
   1. Celery beat runs verify_scheduled_predictions every minute.
-  2. For each Prediction whose target_date has passed:
+  2. For each OfficialPrediction whose target_date has passed:
      - Look up the actual price from PriceBar (1d bars).
      - Compute absolute_error, percentage_error, direction_correct.
      - Create a PredictionVerification record (dedup by unique key).
@@ -20,13 +20,12 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
-from datetime import timedelta
-from typing import Dict, List, Optional
+from datetime import time, timedelta
+from typing import Dict, Optional
 
-from django.db.models import Count, Q
 from django.utils import timezone
 
-from oracle.models import Prediction, PredictionVerification, PriceBar
+from oracle.models import OfficialPrediction, PredictionVerification, PriceBar
 
 logger = logging.getLogger(__name__)
 
@@ -63,33 +62,6 @@ def _classify_direction(change_pct: float) -> str:
         return "sideways"
 
 
-def _is_earliest_prediction_of_day(pred) -> bool:
-    """
-    Check whether *pred* is the earliest Prediction generated on its
-    calendar date for the same (metal, timeframe).
-
-    Only the earliest prediction each calendar day is considered the
-    "official" prediction for backtesting purposes.  All later predictions
-    from the same day are ignored when creating verification records.
-    """
-    day_start = pred.generated_at.replace(hour=0, minute=0, second=0, microsecond=0)
-    day_end = day_start + timedelta(days=1)
-
-    earliest = (
-        Prediction.objects.filter(
-            metal=pred.metal,
-            timeframe=pred.timeframe,
-            generated_at__gte=day_start,
-            generated_at__lt=day_end,
-        )
-        .order_by("generated_at")
-        .first()
-    )
-    if earliest is None:
-        return True  # no other predictions — this one is the earliest by default
-    return earliest.pk == pred.pk
-
-
 def _has_verification_for_date(metal: str, timeframe: str, date_dt) -> bool:
     """
     Check if a PredictionVerification already exists for the given
@@ -105,26 +77,47 @@ def _has_verification_for_date(metal: str, timeframe: str, date_dt) -> bool:
     ).exists()
 
 
+def _target_day_bounds(target_dt):
+    target_day = timezone.localdate(target_dt)
+    day_start = timezone.make_aware(
+        timezone.datetime.combine(target_day, time.min),
+        timezone.get_current_timezone(),
+    )
+    day_end = day_start + timedelta(days=1)
+    return target_day, day_start, day_end
+
+
+def _target_day_has_arrived(target_dt) -> bool:
+    return timezone.localdate(target_dt) <= timezone.localdate()
+
+
 def _get_actual_price(metal: str, target_dt) -> Optional[float]:
     """
-    Find the closing price of the 1d PriceBar closest to target_dt.
-    Uses 1d bars since they are the most reliable source.
-    """
-    window_start = target_dt - timedelta(days=2)
-    window_end = target_dt + timedelta(days=2)
+    Find the first available 1d close for the target calendar day.
 
-    bars = list(
+    Official predictions are daily snapshots. Their target_date stores the
+    generation time plus the horizon, but PriceBar 1d rows are timestamped at
+    midnight. Match by target calendar day so a July 19 -> July 20 prediction
+    can verify against the July 20 daily bar.
+    """
+    if not _target_day_has_arrived(target_dt):
+        return None
+
+    _, day_start, day_end = _target_day_bounds(target_dt)
+    bar = (
         PriceBar.objects.filter(
             metal=metal,
             timeframe="1d",
-            timestamp__gte=window_start,
-            timestamp__lte=window_end,
-        ).values("close_usd", "timestamp")
+            timestamp__gte=day_start,
+            timestamp__lt=day_end,
+        )
+        .order_by("timestamp")
+        .values("close_usd", "timestamp")
+        .first()
     )
-    if not bars:
+    if bar is None:
         return None
-    closest = min(bars, key=lambda b: abs(b["timestamp"] - target_dt))
-    return float(closest["close_usd"])
+    return float(bar["close_usd"])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -144,69 +137,46 @@ def cleanup_bad_verifications() -> int:
     return count
 
 
+def cleanup_future_verifications() -> int:
+    """
+    Delete verification rows whose target date has not arrived yet.
+    Those rows were created by the old archive-on-overwrite workflow.
+    """
+    qs = PredictionVerification.objects.filter(
+        timeframe__in=["1d", "1w"],
+        target_date__date__gt=timezone.localdate(),
+    )
+    count = qs.count()
+    if count:
+        qs.delete()
+        logger.warning("Cleaned up %d future-dated Verification records", count)
+    return count
+
+
 def deduplicate_verifications() -> int:
     """
-    Keep only the first Verification record for each (metal, timeframe,
-    prediction_date, target_date) combination. Delete the rest.
+    Keep only one Verification record per (metal, timeframe, prediction
+    calendar day). Delete later records from the same day.
     Returns the number of records deleted.
     """
-    dup_keys = (
-        PredictionVerification.objects.filter(timeframe__in=["1d", "1w"])
-        .values("metal", "timeframe", "prediction_date", "target_date")
-        .annotate(cnt=Count("id"))
-        .filter(cnt__gt=1)
-    )
-
     deleted = 0
-    for key in dup_keys:
-        records = PredictionVerification.objects.filter(
-            metal=key["metal"],
-            timeframe=key["timeframe"],
-            prediction_date=key["prediction_date"],
-            target_date=key["target_date"],
-        ).order_by("id")
-
-        if records.count() > 1:
-            keep = records.first()
-            to_delete = records.exclude(id=keep.id)
-            deleted += to_delete.count()
-            to_delete.delete()
+    seen = set()
+    records = (
+        PredictionVerification.objects.filter(timeframe__in=["1d", "1w"])
+        .order_by("metal", "timeframe", "prediction_date", "id")
+        .only("id", "metal", "timeframe", "prediction_date")
+    )
+    for record in records:
+        key = (record.metal, record.timeframe, record.prediction_date.date())
+        if key not in seen:
+            seen.add(key)
+            continue
+        record.delete()
+        deleted += 1
 
     if deleted > 0:
         logger.warning("Deduplicated: removed %d duplicate Verification records", deleted)
     return deleted
-
-
-def _backfill_old_predictions():
-    """
-    For existing 1d/1w predictions that have previous_price_usd=0 or target_date=None,
-    backfill them from the current PriceSnapshot and compute target_date.
-    """
-    horizon_map = {
-        "1d": timedelta(days=1),
-        "1w": timedelta(days=7),
-    }
-
-    updated = 0
-    for pred in Prediction.objects.filter(
-        timeframe__in=["1d", "1w"],
-    ).filter(
-        Q(previous_price_usd=0) | Q(target_date__isnull=True)
-    ):
-        # Backfill previous_price_usd from current_price_usd if missing
-        if pred.previous_price_usd == 0 and pred.current_price_usd > 0:
-            pred.previous_price_usd = pred.current_price_usd
-
-        # Backfill target_date if missing
-        if pred.target_date is None:
-            delta = horizon_map.get(pred.timeframe, timedelta(days=1))
-            pred.target_date = pred.generated_at + delta
-
-        pred.save(update_fields=["previous_price_usd", "target_date"])
-        updated += 1
-
-    if updated > 0:
-        logger.info("Backfilled %d old predictions with previous_price_usd and target_date", updated)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -220,23 +190,20 @@ def verify_scheduled_predictions():
     Skips predictions that already have a verification record (dedup).
     Runs cleanup on every invocation to remove stale records.
     """
-    now = timezone.now()
+    today = timezone.localdate()
 
     # 1. Clean up bad records (previous_price=0)
     cleanup_bad_verifications()
+    cleanup_future_verifications()
 
     # 2. Deduplicate existing verifications
     deduplicate_verifications()
 
-    # 3. Backfill old predictions that don't have previous_price_usd or target_date
-    _backfill_old_predictions()
-
-    # 4. Verify predictions whose target_date has passed
+    # 3. Verify official daily predictions whose target_date has passed
     predictions = (
-        Prediction.objects.filter(
+        OfficialPrediction.objects.filter(
             timeframe__in=["1d", "1w"],
-            target_date__lte=now,
-            previous_price_usd__gt=0,
+            target_date__date__lte=today,
         )
         .order_by("target_date")
     )
@@ -245,9 +212,13 @@ def verify_scheduled_predictions():
     skipped = 0
 
     for pred in predictions:
+        if pred.previous_price_usd <= 0:
+            skipped += 1
+            continue
+
         # Only ONE verification per (metal, timeframe, calendar date).
-        # If a verification already exists for this prediction's date, skip.
-        if _has_verification_for_date(pred.metal, pred.timeframe, pred.generated_at):
+        # If a verification already exists for this prediction's day, skip.
+        if _has_verification_for_date(pred.metal, pred.timeframe, pred.prediction_date):
             skipped += 1
             continue
 
@@ -255,7 +226,7 @@ def verify_scheduled_predictions():
         exists = PredictionVerification.objects.filter(
             metal=pred.metal,
             timeframe=pred.timeframe,
-            prediction_date=pred.generated_at,
+            prediction_date=pred.prediction_date,
             target_date=pred.target_date,
         ).exists()
         if exists:
@@ -271,25 +242,17 @@ def verify_scheduled_predictions():
             continue
 
         previous_price = pred.previous_price_usd
-        if previous_price is None or previous_price == 0:
-            previous_price = pred.current_price_usd
-        if previous_price is None or previous_price == 0:
-            logger.warning(
-                "Skipping prediction %s/%s target=%s — no previous_price",
-                pred.metal, pred.timeframe, pred.target_date,
-            )
-            continue
 
         change_pct = ((actual_price - previous_price) / previous_price) * 100
         actual_dir = _classify_direction(change_pct)
 
         # Predicted direction from the prediction record
-        predicted_dir = pred.direction if pred.direction else "up"
+        predicted_dir = pred.predicted_direction if pred.predicted_direction else "sideways"
 
         verification = PredictionVerification(
             metal=pred.metal,
             timeframe=pred.timeframe,
-            prediction_date=pred.generated_at,
+            prediction_date=pred.prediction_date,
             target_date=pred.target_date,
             previous_price=float(previous_price),
             predicted_price=float(pred.predicted_usd),
@@ -334,7 +297,7 @@ def verify_predictions(
     Verify all unverified Prediction records whose target date has passed.
     This is the manual/triggered entry point.
     """
-    now = timezone.now()
+    today = timezone.localdate()
 
     # Only 1d and 1w
     if timeframe not in ("1d", "1w"):
@@ -346,32 +309,31 @@ def verify_predictions(
 
     # Clean up and dedup first
     cleanup_bad_verifications()
+    cleanup_future_verifications()
     deduplicate_verifications()
-    _backfill_old_predictions()
 
     predictions = (
-        Prediction.objects.filter(
+        OfficialPrediction.objects.filter(
             metal=metal,
             timeframe=timeframe,
-            target_date__lte=now,
-            previous_price_usd__gt=0,
+            target_date__date__lte=today,
         )
         .order_by("target_date")
     )
 
     created = 0
     for pred in predictions:
-        # Only the earliest prediction each calendar day is the "official" one
-        if not _is_earliest_prediction_of_day(pred):
+        if pred.previous_price_usd <= 0:
             continue
 
-        # Dedup
         if PredictionVerification.objects.filter(
             metal=pred.metal,
             timeframe=pred.timeframe,
-            prediction_date=pred.generated_at,
+            prediction_date=pred.prediction_date,
             target_date=pred.target_date,
         ).exists():
+            continue
+        if _has_verification_for_date(pred.metal, pred.timeframe, pred.prediction_date):
             continue
 
         actual_price = _get_actual_price(pred.metal, pred.target_date)
@@ -379,19 +341,15 @@ def verify_predictions(
             continue
 
         previous_price = pred.previous_price_usd
-        if previous_price is None or previous_price == 0:
-            previous_price = pred.current_price_usd
-        if previous_price is None or previous_price == 0:
-            continue
 
         change_pct = ((actual_price - previous_price) / previous_price) * 100
         actual_dir = _classify_direction(change_pct)
-        predicted_dir = pred.direction if pred.direction else "up"
+        predicted_dir = pred.predicted_direction if pred.predicted_direction else "sideways"
 
         verification = PredictionVerification(
             metal=pred.metal,
             timeframe=pred.timeframe,
-            prediction_date=pred.generated_at,
+            prediction_date=pred.prediction_date,
             target_date=pred.target_date,
             previous_price=float(previous_price),
             predicted_price=float(pred.predicted_usd),
@@ -429,7 +387,10 @@ def compute_verification_stats(
     Compute MAE, RMSE, MAPE, Directional Accuracy from stored verifications.
     When timeframe is None, aggregates across ALL timeframes for the given metal.
     """
-    q = PredictionVerification.objects.filter(metal=metal)
+    q = PredictionVerification.objects.filter(
+        metal=metal,
+        target_date__date__lte=timezone.localdate(),
+    )
     if timeframe is not None:
         q = q.filter(timeframe=timeframe)
     records = list(
